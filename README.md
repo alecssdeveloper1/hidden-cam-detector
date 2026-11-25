@@ -95,7 +95,6 @@ git tag v0.1.0 && git push --tags
 
 Folosește-l pentru confidențialitate unde stai, sau pe rețele pe care le administrezi. Instrumentul doar identifică dispozitive; nu accesează video și nu încearcă parole.
 
-Bazat pe [develogo/hidden-cam-detector](https://github.com/develogo/hidden-cam-detector), adaptat cu interfață RO/EN.
 
 ---
 
