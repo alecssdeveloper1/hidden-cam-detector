@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="ro">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hidden Cam Detector</title>
+<style>
+  :root { color-scheme: dark; --bg:#111418; --card:#1a1f25; --line:#2a313a; --txt:#e6e9ec; --dim:#8a96a3;
+          --red:#ff5d5d; --yellow:#f2c14e; --green:#5fd08a; --blue:#5aa9ff; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.45 system-ui, sans-serif; background:var(--bg); color:var(--txt); }
+  main { max-width:1100px; margin:0 auto; padding:24px 16px; }
+  .top { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  p.sub { margin:0 0 20px; color:var(--dim); }
+  .lang { display:flex; gap:4px; }
+  .lang button { background:var(--card); color:var(--dim); border:1px solid var(--line); border-radius:8px;
+                 padding:6px 12px; font-weight:600; font-size:13px; cursor:pointer; }
+  .lang button.active { background:var(--blue); color:#06121f; border-color:var(--blue); }
+  .bar { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
+  button, a.btn { background:var(--blue); color:#06121f; border:0; border-radius:8px; padding:10px 18px;
+                  font-weight:600; font-size:15px; cursor:pointer; text-decoration:none; }
+  button:disabled { opacity:.5; cursor:default; }
+  a.btn.secondary { background:var(--card); color:var(--txt); border:1px solid var(--line); }
+  button:focus-visible, a:focus-visible, input:focus-visible, summary:focus-visible { outline:2px solid var(--blue); outline-offset:2px; }
+  #status { color:var(--dim); }
+  progress { width:180px; }
+  details { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:10px 14px; margin-bottom:16px; }
+  summary { cursor:pointer; font-weight:600; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; margin-top:12px; }
+  label { display:flex; flex-direction:column; gap:4px; font-size:13px; color:var(--dim); }
+  input { background:var(--bg); color:var(--txt); border:1px solid var(--line); border-radius:6px; padding:8px; font-size:15px; }
+  .summary { display:flex; gap:10px; margin-bottom:12px; flex-wrap:wrap; }
+  .pill { padding:4px 10px; border-radius:999px; font-size:13px; font-weight:600; white-space:nowrap; }
+  .likely { background:#3a1717; color:var(--red); }
+  .possible { background:#3a3017; color:var(--yellow); }
+  .unlikely { background:#173a25; color:var(--green); }
+  table { width:100%; border-collapse:collapse; background:var(--card); border-radius:8px; overflow:hidden; }
+  th, td { text-align:left; padding:10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { font-size:13px; color:var(--dim); font-weight:600; }
+  td.mono { font-family:ui-monospace, monospace; font-size:13px; }
+  ul.ev { margin:0; padding-left:18px; }
+  ul.ev li.strong { color:var(--red); }
+  .muted { color:var(--dim); }
+  #error { color:var(--red); }
+</style>
+</head>
+<body>
+<main>
+  <div class="top">
+    <div>
+      <h1 data-i18n="title">Detector Camere Ascunse</h1>
+      <p class="sub" data-i18n="subtitle">Găsește camere IP, DVR-uri și NVR-uri în rețeaua locală. Doar detecție: nu deschide fluxul video și nu încearcă autentificarea.</p>
+    </div>
+    <div class="lang" role="group" aria-label="Language">
+      <button type="button" id="lang-ro" data-lang="ro">RO</button>
+      <button type="button" id="lang-en" data-lang="en">EN</button>
+    </div>
+  </div>
+
+  <div class="bar">
+    <button id="scan" data-i18n="scan">Scanare</button>
+    <progress id="progress" max="1" value="0" hidden></progress>
+    <span id="status" role="status" aria-live="polite"></span>
+    <a class="btn secondary" href="/api/devices" download="hidden-cam-scan.json" data-i18n="export">Export JSON</a>
+  </div>
+  <p id="error" role="alert"></p>
+
+  <details>
+    <summary data-i18n="settings">Setări</summary>
+    <div class="grid">
+      <label><span data-i18n="subnet">Subrețea (CIDR)</span><input id="subnet" placeholder="192.168.0.0/24"></label>
+      <label><span data-i18n="extraPorts">Porturi suplimentare (separate prin virgulă)</span><input id="extra" data-i18n-placeholder="extraPortsPh" placeholder="ex. 9000, 10554"></label>
+      <label><span data-i18n="timeout">Timp expirare conexiune (ms)</span><input id="timeout" type="number" min="100" max="5000" step="100"></label>
+    </div>
+    <p class="muted" id="ports"></p>
+  </details>
+
+  <div class="summary" id="counts"></div>
+  <table>
+    <thead><tr>
+      <th data-i18n="colVerdict">Verdict</th>
+      <th data-i18n="colIp">IP</th>
+      <th data-i18n="colMac">MAC / producător</th>
+      <th data-i18n="colPorts">Porturi deschise</th>
+      <th data-i18n="colEvidence">Dovezi</th>
+    </tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+
+const I18N = {
+  ro: {
+    title: 'Detector Camere Ascunse',
+    subtitle: 'Găsește camere IP, DVR-uri și NVR-uri în rețeaua locală. Doar detecție: nu deschide fluxul video și nu încearcă autentificarea.',
+    scan: 'Scanare',
+    export: 'Export JSON',
+    settings: 'Setări',
+    subnet: 'Subrețea (CIDR)',
+    extraPorts: 'Porturi suplimentare (separate prin virgulă)',
+    extraPortsPh: 'ex. 9000, 10554',
+    timeout: 'Timp expirare conexiune (ms)',
+    defaultPorts: 'Porturi implicite: ',
+    colVerdict: 'Verdict',
+    colIp: 'IP',
+    colMac: 'MAC / producător',
+    colPorts: 'Porturi deschise',
+    colEvidence: 'Dovezi',
+    clickScan: 'Apasă Scanare pentru a începe.',
+    noDevices: 'Niciun dispozitiv găsit încă.',
+    noSignal: 'niciun semnal de cameră',
+    subnetMissing: 'Nu s-a putut detecta subrețeaua; seteaz-o în Setări.',
+    invalidPort: 'Port suplimentar invalid: "{bad}"',
+    likely: 'Cameră probabilă',
+    possible: 'Posibil',
+    unlikely: 'Puțin probabil',
+    phases: {
+      idle: 'Gata',
+      sweep: 'Se scanează porturile și descoperirea',
+      banners: 'Se citesc banner-ele',
+      arp: 'Se citește tabelul ARP',
+      done: 'Gata',
+    },
+    errors: {
+      'invalid subnet: use IPv4 in the form 192.168.0.0/24': 'Subrețea invalidă: folosește IPv4 de forma 192.168.0.0/24',
+      'subnet too large: the maximum is /20 (4096 addresses)': 'Subrețea prea mare: maximul este /20 (4096 adrese)',
+      'timeout must be between 100 and 5000 ms': 'Timeout-ul trebuie să fie între 100 și 5000 ms',
+      'at most 32 extra ports': 'Maximum 32 de porturi suplimentare',
+      'a scan is already running': 'O scanare rulează deja',
+      'use Content-Type: application/json': 'Folosește Content-Type: application/json',
+      'invalid JSON': 'JSON invalid',
+      'host not allowed': 'Host nepermis',
+    },
+  },
+  en: {
+    title: 'Hidden Cam Detector',
+    subtitle: 'Finds IP cameras, DVRs and NVRs on the local network. Detection only: never opens video or attempts a login.',
+    scan: 'Scan',
+    export: 'Export JSON',
+    settings: 'Settings',
+    subnet: 'Subnet (CIDR)',
+    extraPorts: 'Extra ports (comma-separated)',
+    extraPortsPh: 'e.g. 9000, 10554',
+    timeout: 'Connection timeout (ms)',
+    defaultPorts: 'Default ports: ',
+    colVerdict: 'Verdict',
+    colIp: 'IP',
+    colMac: 'MAC / vendor',
+    colPorts: 'Open ports',
+    colEvidence: 'Evidence',
+    clickScan: 'Click Scan to start.',
+    noDevices: 'No devices found yet.',
+    noSignal: 'no camera signal',
+    subnetMissing: 'Could not detect the subnet; set it in Settings.',
+    invalidPort: 'Invalid extra port: "{bad}"',
+    likely: 'Likely camera',
+    possible: 'Possible',
+    unlikely: 'Unlikely',
+    phases: {
+      idle: 'Ready',
+      sweep: 'Scanning ports and discovery',
+      banners: 'Reading banners',
+      arp: 'Reading ARP table',
+      done: 'Done',
+    },
+    errors: {},
+  },
+};
+
+let lang = localStorage.getItem('hcd-lang');
+if (lang !== 'ro' && lang !== 'en') {
+  lang = (navigator.language || '').toLowerCase().startsWith('en') ? 'en' : 'ro';
+}
+
+let lastState = null;
+let defaultPortsList = [];
+
+function t(key) {
+  const pack = I18N[lang] || I18N.ro;
+  return pack[key] ?? I18N.en[key] ?? key;
+}
+
+function verdictLabel(key) {
+  return t(key) || key;
+}
+
+function phaseLabel(phase) {
+  return (I18N[lang].phases[phase] || I18N.en.phases[phase] || phase);
+}
+
+function translateError(msg) {
+  if (!msg) return '';
+  const map = I18N[lang].errors || {};
+  if (map[msg]) return map[msg];
+  const port = msg.match(/^invalid port: (\d+)$/);
+  if (port) return lang === 'ro' ? `Port invalid: ${port[1]}` : msg;
+  return msg;
+}
+
+function translateEvidence(detail) {
+  if (lang === 'en' || !detail) return detail;
+  const rules = [
+    [/^(\d+) open \(Dahua protocol\)$/, (_, p) => `${p} deschis (protocol Dahua)`],
+    [/^(\d+) open \(XMeye protocol, generic DVRs\)$/, (_, p) => `${p} deschis (protocol XMeye, DVR-uri generice)`],
+    [/^(\d+) open \(Hikvision SDK\)$/, (_, p) => `${p} deschis (SDK Hikvision)`],
+    [/^(\d+) open \(ONVIF on cheap cameras\)$/, (_, p) => `${p} deschis (ONVIF pe camere ieftine)`],
+    [/^(\d+) open \(RTMP streaming\)$/, (_, p) => `${p} deschis (streaming RTMP)`],
+    [/^port (\d+) open, but no RTSP response$/, (_, p) => `portul ${p} deschis, dar fără răspuns RTSP`],
+    [/^RTSP \(video\) server responding on port (\d+)$/, (_, p) => `Server RTSP (video) răspunde pe portul ${p}`],
+    [/^responds as an ONVIF camera \(WS-Discovery\)(?:: (.+))?$/, (_, info) =>
+      info ? `răspunde ca o cameră ONVIF (WS-Discovery): ${info}` : 'răspunde ca o cameră ONVIF (WS-Discovery)'],
+    [/^advertises video service (.+)$/, (_, svc) => `anunță serviciul video ${svc}`],
+    [/^camera vendor by MAC: (.+)$/, (_, v) => `producător de camere după MAC: ${v}`],
+    [/^camera brand: (.+)$/, (_, b) => `marcă de cameră: ${b}`],
+    [/^surveillance term: (.+)$/, (_, s) => `termen de supraveghere: ${s}`],
+  ];
+  for (const [re, fn] of rules) {
+    const m = detail.match(re);
+    if (m) return fn(...m);
+  }
+  return detail;
+}
+
+function applyStaticI18n() {
+  document.documentElement.lang = lang;
+  document.title = t('title');
+  document.querySelectorAll('[data-i18n]').forEach(node => {
+    node.textContent = t(node.getAttribute('data-i18n'));
+  });
+  document.querySelectorAll('[data-i18n-placeholder]').forEach(node => {
+    node.placeholder = t(node.getAttribute('data-i18n-placeholder'));
+  });
+  $('lang-ro').classList.toggle('active', lang === 'ro');
+  $('lang-en').classList.toggle('active', lang === 'en');
+  if (defaultPortsList.length) {
+    $('ports').textContent = t('defaultPorts') + defaultPortsList.join(', ');
+  }
+  if (lastState) render(lastState);
+}
+
+function setLang(next) {
+  lang = next;
+  localStorage.setItem('hcd-lang', lang);
+  applyStaticI18n();
+}
+
+// The server sends the full state, already sorted and labeled; this only renders it.
+// Everything from devices goes through textContent so a malicious banner cannot inject HTML.
+function render({ status: st, summary, devices }) {
+  lastState = { status: st, summary, devices };
+  $('scan').disabled = st.running;
+  const p = $('progress');
+  p.hidden = !st.running;
+  p.max = st.total || 1; p.value = st.done;
+  let txt = phaseLabel(st.phase);
+  if (st.phase === 'sweep' && st.total) txt += ` (${Math.round(100 * st.done / st.total)}%)`;
+  if (st.subnet) txt += ` — ${st.subnet}`;
+  $('status').textContent = txt;
+  if (st.error) $('error').textContent = translateError(st.error);
+
+  const rows = devices.map(d => {
+    const tr = el('tr');
+    const v = el('td'); v.append(el('span', 'pill ' + d.verdict, verdictLabel(d.verdict))); tr.append(v);
+    tr.append(el('td', 'mono', d.ip));
+    const mac = el('td', 'mono', d.mac || '—');
+    if (d.vendor) mac.append(el('br'), el('span', 'muted', d.vendor));
+    tr.append(mac);
+    tr.append(el('td', 'mono', d.ports.length ? d.ports.join(', ') : '—'));
+    const ev = el('td');
+    if (d.evidence.length) {
+      const ul = el('ul', 'ev');
+      d.evidence.forEach(e => ul.append(el('li', e.weight, `[${e.source}] ${translateEvidence(e.detail)}`)));
+      ev.append(ul);
+    } else ev.append(el('span', 'muted', t('noSignal')));
+    tr.append(ev);
+    return tr;
+  });
+  if (!rows.length) {
+    const td = el('td', 'muted', st.phase === 'idle' ? t('clickScan') : t('noDevices'));
+    td.colSpan = 5; const tr = el('tr'); tr.append(td); rows.push(tr);
+  }
+  $('rows').replaceChildren(...rows);
+  $('counts').replaceChildren(...summary.map(c =>
+    el('span', 'pill ' + c.verdict, `${c.count} ${verdictLabel(c.verdict).toLowerCase()}`)
+  ));
+}
+
+new EventSource('/api/events').addEventListener('state', e => render(JSON.parse(e.data)));
+
+async function errorText(r) {
+  const body = await r.text();
+  try { return translateError(JSON.parse(body).error || body); } catch { return body || `error ${r.status}`; }
+}
+
+fetch('/api/config').then(r => r.json()).then(c => {
+  $('subnet').value = c.subnet;
+  $('timeout').value = c.timeoutMs;
+  defaultPortsList = c.defaultPorts || [];
+  $('ports').textContent = t('defaultPorts') + defaultPortsList.join(', ');
+  if (!c.subnet) $('error').textContent = t('subnetMissing');
+});
+
+$('scan').addEventListener('click', async () => {
+  $('error').textContent = '';
+  const raw = $('extra').value.split(',').map(s => s.trim()).filter(Boolean);
+  const bad = raw.find(s => !/^\d+$/.test(s));
+  if (bad !== undefined) { $('error').textContent = t('invalidPort').replace('{bad}', bad); return; }
+  const r = await fetch('/api/scan', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ subnet: $('subnet').value, extraPorts: raw.map(Number), timeoutMs: Number($('timeout').value) }),
+  });
+  if (!r.ok) $('error').textContent = await errorText(r);
+});
+
+$('lang-ro').addEventListener('click', () => setLang('ro'));
+$('lang-en').addEventListener('click', () => setLang('en'));
+applyStaticI18n();
+</script>
+</body>
+</html>
