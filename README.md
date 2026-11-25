@@ -96,3 +96,19 @@ git tag v0.1.0 && git push --tags
 Folosește-l pentru confidențialitate unde stai, sau pe rețele pe care le administrezi. Instrumentul doar identifică dispozitive; nu accesează video și nu încearcă parole.
 
 Bazat pe [develogo/hidden-cam-detector](https://github.com/develogo/hidden-cam-detector), adaptat cu interfață RO/EN.
+
+---
+
+### ☕ Donează
+
+[![Wise](https://img.shields.io/badge/Wise-Donează-9FE870?style=for-the-badge&logo=wise&logoColor=black)](https://wise.com/pay/me/alexandrup104)
+[![Revolut](https://img.shields.io/badge/Revolut-Donează-0075EB?style=for-the-badge&logo=revolut&logoColor=white)](https://revolut.me/alecss12)
+
+<br/>
+
+### 📞 Contact
+
+[![WhatsApp](https://img.shields.io/badge/WhatsApp-+40_732_159_658-25D366?style=for-the-badge&logo=whatsapp&logoColor=white)](https://wa.me/40732159658)
+[![Telegram](https://img.shields.io/badge/Telegram-@alecss12-26A5E4?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/alecss12)
+
+<br/>
